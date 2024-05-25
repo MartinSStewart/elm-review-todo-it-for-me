@@ -232,11 +232,11 @@ declarationVisitor context availableTypes declarationRange function =
         |> Maybe.withDefault NotFound
 
 
-todoErrors : ProjectContext a -> ModuleName -> CodeGenTodo -> Maybe (Rule.Error { useErrorForModule : () })
-todoErrors projectContext currentModule todo =
+todoErrors : Bool -> ProjectContext a -> ModuleName -> CodeGenTodo -> Maybe (Rule.Error { useErrorForModule : () })
+todoErrors incrementalMode projectContext currentModule todo =
     case ( List.Extra.find (\codeGen -> codeGen.id == todo.codeGenId) projectContext.codeGens, AssocList.get currentModule projectContext.moduleKeys, AssocList.get currentModule projectContext.imports ) of
         ( Just codeGen, Just moduleKey, Just imports ) ->
-            case createFixes projectContext codeGen imports currentModule todo of
+            case createFixes incrementalMode projectContext codeGen imports currentModule todo of
                 Ok fixes ->
                     Rule.errorForModuleWithFix moduleKey
                         { message = "Remove the use of `Debug.todo` before shipping to production"
@@ -263,8 +263,8 @@ todoErrors projectContext currentModule todo =
             Nothing
 
 
-createFixes : ProjectContext a -> ConfiguredCodeGenerator -> { newImportStartRow : Int, existingImports : List ExistingImport } -> ModuleName -> CodeGenTodo -> Result String (List Review.Fix.Fix)
-createFixes projectContext codeGen imports currentModule todo =
+createFixes : Bool -> ProjectContext a -> ConfiguredCodeGenerator -> { newImportStartRow : Int, existingImports : List ExistingImport } -> ModuleName -> CodeGenTodo -> Result String (List Review.Fix.Fix)
+createFixes incrementalMode projectContext codeGen imports currentModule todo =
     let
         childType =
             ResolvedType.computeVisibility currentModule projectContext.exports todo.childType
@@ -276,6 +276,7 @@ createFixes projectContext codeGen imports currentModule todo =
             projectContext.existingFunctionProviders
                 |> List.filter (\provider -> provider.codeGenId == codeGen.id)
         , genericArguments = todo.genericArguments
+        , incrementalMode = incrementalMode
         }
         (case childType of
             ResolvedType.CustomType ref _ _ ->

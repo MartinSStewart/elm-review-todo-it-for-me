@@ -10,7 +10,7 @@ import Internal.Imports exposing (ExistingImport)
 import Internal.ResolvedType as ResolvedType
 import Internal.TypePattern as TypePattern
 import List.Extra
-import ResolvedType exposing (Reference, ResolvedType)
+import ResolvedType exposing (Reference, ResolvedType(..))
 import TypePattern exposing (TypePattern)
 
 
@@ -162,6 +162,7 @@ type alias GenerationContext =
     , currentModule : ModuleName
     , existingFunctionProviders : List ExistingFunctionProvider
     , genericArguments : Dict.Dict String String
+    , incrementalMode : Bool
     }
 
 
@@ -225,20 +226,8 @@ generate codeGen isTopLevel context stack inputValue type_ =
 
                         Nothing ->
                             applyResolvers
-                                -- (\resolver ->
-                                --     case resolver of
-                                --         PrimitiveResolver reference fn ->
-                                --             if reference == ref then
-                                --                 List.map (generate False context stack) args
-                                --                     |> combineResults
-                                --                     |> Result.map (\( x, y, z ) -> ( fn args x, y, z ))
-                                --                     |> transmogrify
-                                --             else
-                                --                 Nothing
-                                --         _ ->
-                                --             Nothing
                                 (always Nothing)
-                                -- )
+                                isTopLevel
                                 (Helpers.writeExpression (ResolvedType.refToExpr context.currentModule context.existingImports ref))
                                 codeGen
                                 context
@@ -247,17 +236,27 @@ generate codeGen isTopLevel context stack inputValue type_ =
                                 type_
 
                 ResolvedType.Function _ _ ->
-                    applyResolvers (always Nothing) "<function>" codeGen context stack inputValue type_
+                    applyResolvers (always Nothing) isTopLevel "<function>" codeGen context stack inputValue type_
 
                 ResolvedType.TypeAlias ref generics (ResolvedType.AnonymousRecord _ children) ->
-                    applyCombiner type_ (ResolvedType.refToExpr context.currentModule context.existingImports ref) inputValue (List.map Tuple.second children) codeGen context stack
-                        |> makeExternalDeclaration isTopLevel codeGen ref generics
+                    makeExternalDeclaration isTopLevel
+                        codeGen
+                        context
+                        stack
+                        inputValue
+                        type_
+                        ref
+                        generics
+                        (\_ ->
+                            applyCombiner isTopLevel type_ (ResolvedType.refToExpr context.currentModule context.existingImports ref) inputValue (List.map Tuple.second children) codeGen context stack
+                        )
 
                 ResolvedType.TypeAlias _ _ childType ->
                     generate codeGen isTopLevel context stack inputValue childType
 
                 ResolvedType.AnonymousRecord _ children ->
-                    applyCombiner type_
+                    applyCombiner isTopLevel
+                        type_
                         (List.map (\( name, _ ) -> ( name, CG.val name )) children
                             |> CG.record
                             |> CG.lambda (List.map (\( name, _ ) -> CG.varPattern name) children)
@@ -274,10 +273,11 @@ generate codeGen isTopLevel context stack inputValue type_ =
                             generate codeGen False context stack inputValue (ResolvedType.Opaque { modulePath = [ "Basics" ], name = "()" } [])
 
                         2 ->
-                            applyCombiner type_ (CG.fqFun [ "Tuple" ] "pair") inputValue args codeGen context stack
+                            applyCombiner isTopLevel type_ (CG.fqFun [ "Tuple" ] "pair") inputValue args codeGen context stack
 
                         3 ->
-                            applyCombiner type_
+                            applyCombiner isTopLevel
+                                type_
                                 (CG.lambda [ CG.varPattern "a", CG.varPattern "b", CG.varPattern "c" ] (CG.tuple [ CG.val "a", CG.val "b", CG.val "c" ]))
                                 inputValue
                                 args
@@ -291,130 +291,217 @@ generate codeGen isTopLevel context stack inputValue type_ =
                 ResolvedType.CustomType ref generics ctors ->
                     makeExternalDeclaration isTopLevel
                         codeGen
+                        context
+                        stack
+                        inputValue
+                        type_
                         ref
                         generics
-                        (applyResolvers
-                            (\resolver ->
-                                case resolver of
-                                    CustomTypeResolver outputFn fn ->
-                                        List.map2
-                                            (\( ctorRef, args ) input ->
-                                                applyCombiner (ResolvedType.Opaque ctorRef args)
-                                                    (ResolvedType.refToExpr context.currentModule context.existingImports ctorRef)
-                                                    input
-                                                    args
-                                                    codeGen
-                                                    context
-                                                    (if isTopLevel then
-                                                        stack
+                        (\_ ->
+                            applyResolvers
+                                (\resolver ->
+                                    case resolver of
+                                        CustomTypeResolver outputFn fn ->
+                                            List.map2
+                                                (\( ctorRef, args ) input ->
+                                                    applyCombiner isTopLevel
+                                                        (ResolvedType.Opaque ctorRef args)
+                                                        (ResolvedType.refToExpr context.currentModule context.existingImports ctorRef)
+                                                        input
+                                                        args
+                                                        codeGen
+                                                        context
+                                                        (if isTopLevel then
+                                                            stack
 
-                                                     else
-                                                        case codeGen.makeName of
-                                                            Just makeName ->
-                                                                { name = makeName ref.name
-                                                                , ref = ref
-                                                                , genericArguments = Dict.empty
-                                                                , isLambdaProtected = False
-                                                                }
-                                                                    :: stack
+                                                         else
+                                                            case codeGen.makeName of
+                                                                Just makeName ->
+                                                                    { name = makeName ref.name
+                                                                    , ref = ref
+                                                                    , genericArguments = Dict.empty
+                                                                    , isLambdaProtected = False
+                                                                    }
+                                                                        :: stack
 
-                                                            Nothing ->
-                                                                stack
-                                                    )
-                                            )
-                                            ctors
-                                            (outputFn inputValue ctors)
-                                            |> CodeGenerationResult.combine (\x -> x |> List.map2 (\( ctorRef, _ ) -> Tuple.pair ctorRef.name) ctors |> fn inputValue ctors)
-                                            |> Just
+                                                                Nothing ->
+                                                                    stack
+                                                        )
+                                                )
+                                                ctors
+                                                (outputFn inputValue ctors)
+                                                |> CodeGenerationResult.combine (\x -> x |> List.map2 (\( ctorRef, _ ) -> Tuple.pair ctorRef.name) ctors |> fn inputValue ctors)
+                                                |> Just
 
-                                    _ ->
-                                        Nothing
-                            )
-                            ref.name
-                            codeGen
-                            context
-                            stack
-                            inputValue
-                            type_
+                                        _ ->
+                                            Nothing
+                                )
+                                isTopLevel
+                                ref.name
+                                codeGen
+                                context
+                                stack
+                                inputValue
+                                type_
                         )
 
 
-makeExternalDeclaration : Bool -> AssembledGenerator a -> Reference -> List String -> CodeGenerationResult -> CodeGenerationResult
-makeExternalDeclaration isTopLevel codeGen ref generics defExpr =
+lazilyPrepareGenerics : AssembledGenerator a -> GenerationContext -> RecursionStack -> a -> ResolvedType -> CodeGenerationResult
+lazilyPrepareGenerics codeGen context stack inputValue type_ =
+    case type_ of
+        ResolvedType.GenericType name Nothing ->
+            Dict.get name context.genericArguments
+                |> Result.fromMaybe ("Could not generate definition for generic variable `" ++ name ++ "`. You need to supply an argument of that type.")
+                |> Result.map
+                    (\n ->
+                        { expression = CG.val n
+                        , auxiliaryDefinitions = []
+                        , bindings = [ ( name, CG.val n ) ]
+                        }
+                    )
+
+        ResolvedType.GenericType name (Just child) ->
+            case generate codeGen False context stack inputValue child of
+                Ok res ->
+                    Ok { res | expression = CG.val name, bindings = ( name, res.expression ) :: res.bindings }
+
+                Err e ->
+                    Err e
+
+        ResolvedType.TypeAlias _ _ subT ->
+            lazilyPrepareGenerics codeGen context stack inputValue subT
+
+        ResolvedType.AnonymousRecord _ children ->
+            CodeGenerationResult.combine (always CG.unit) (List.map (Tuple.second >> lazilyPrepareGenerics codeGen context stack inputValue) children)
+
+        ResolvedType.Tuple args ->
+            CodeGenerationResult.combine (always CG.unit) (List.map (lazilyPrepareGenerics codeGen context stack inputValue) args)
+
+        ResolvedType.CustomType _ _ ctors ->
+            CodeGenerationResult.combine (always CG.unit) (List.concatMap (Tuple.second >> List.map (lazilyPrepareGenerics codeGen context stack inputValue)) ctors)
+
+        ResolvedType.Opaque _ vars ->
+            CodeGenerationResult.combine (always CG.unit) (List.map (lazilyPrepareGenerics codeGen context stack inputValue) vars)
+
+        _ ->
+            CodeGenerationResult.succeed CG.unit
+
+
+makeExternalDeclaration : Bool -> AssembledGenerator a -> GenerationContext -> RecursionStack -> a -> ResolvedType -> Reference -> List String -> (() -> CodeGenerationResult) -> CodeGenerationResult
+makeExternalDeclaration isTopLevel codeGen context stack inputValue type_ ref generics makeDefExpr =
     if isTopLevel then
-        CodeGenerationResult.applyBindings defExpr
+        CodeGenerationResult.applyBindings (makeDefExpr ())
 
     else
         case codeGen.makeName of
             Just makeName ->
-                Result.map
-                    (\res ->
-                        let
-                            annotation =
-                                List.foldr
-                                    (\r anno ->
-                                        CG.funAnn (TypePattern.generate codeGen.searchPattern (CG.typeVar r)) anno
-                                    )
-                                    (TypePattern.generate codeGen.searchPattern (CG.fqTyped ref.modulePath ref.name (List.map (\r -> CG.fqTyped [] r []) generics)))
-                                    generics
+                let
+                    annotation =
+                        List.foldr
+                            (\r anno ->
+                                CG.funAnn (TypePattern.generate codeGen.searchPattern (CG.typeVar r)) anno
+                            )
+                            (TypePattern.generate codeGen.searchPattern (CG.fqTyped ref.modulePath ref.name (List.map (\r -> CG.fqTyped [] r []) generics)))
+                            generics
 
-                            name =
-                                makeName ref.name
-
-                            binds =
-                                Dict.fromList res.bindings
-                        in
-                        { res
-                            | expression =
-                                CG.apply
-                                    (CG.fun name
-                                        :: List.filterMap
-                                            (\r -> Dict.get r binds)
-                                            generics
-                                    )
-                            , auxiliaryDefinitions =
-                                { documentation = Nothing
-                                , signature =
-                                    Just
-                                        (Helpers.node
-                                            { name = Helpers.node name
-                                            , typeAnnotation = Helpers.node annotation
-                                            }
+                    name =
+                        makeName ref.name
+                in
+                if context.incrementalMode then
+                    Result.map
+                        (\res ->
+                            let
+                                binds =
+                                    Dict.fromList res.bindings
+                            in
+                            { res
+                                | expression =
+                                    CG.apply
+                                        (CG.fun name
+                                            :: List.filterMap
+                                                (\r -> Dict.get r binds)
+                                                generics
                                         )
-                                , declaration =
-                                    Helpers.node
-                                        { name = Helpers.node name
-                                        , arguments = List.map (\r -> Helpers.node (CG.varPattern r)) generics
-                                        , expression =
-                                            Helpers.node
-                                                (Helpers.applyBindings
-                                                    (List.filterMap
-                                                        (\r ->
-                                                            case Dict.get r binds of
-                                                                Just (FunctionOrValue [] n) ->
-                                                                    Just ( n, FunctionOrValue [] r )
-
-                                                                _ ->
-                                                                    Nothing
-                                                        )
-                                                        generics
-                                                        |> Dict.fromList
-                                                    )
-                                                    res.expression
+                                , auxiliaryDefinitions =
+                                    [ { documentation = Nothing
+                                      , signature =
+                                            Just
+                                                (Helpers.node
+                                                    { name = Helpers.node name
+                                                    , typeAnnotation = Helpers.node annotation
+                                                    }
                                                 )
-                                        }
-                                }
-                                    :: res.auxiliaryDefinitions
-                        }
-                    )
-                    defExpr
+                                      , declaration =
+                                            Helpers.node
+                                                { name = Helpers.node name
+                                                , arguments = List.map (\r -> Helpers.node (CG.varPattern r)) generics
+                                                , expression = Helpers.node <| CG.apply [ CG.fqFun [ "Debug" ] "todo", CG.string "" ]
+                                                }
+                                      }
+                                    ]
+                                , bindings = []
+                            }
+                        )
+                        (lazilyPrepareGenerics codeGen context stack inputValue type_)
+
+                else
+                    Result.map
+                        (\res ->
+                            let
+                                binds =
+                                    Dict.fromList res.bindings
+                            in
+                            { res
+                                | expression =
+                                    CG.apply
+                                        (CG.fun name
+                                            :: List.filterMap
+                                                (\r -> Dict.get r binds)
+                                                generics
+                                        )
+                                , auxiliaryDefinitions =
+                                    { documentation = Nothing
+                                    , signature =
+                                        Just
+                                            (Helpers.node
+                                                { name = Helpers.node name
+                                                , typeAnnotation = Helpers.node annotation
+                                                }
+                                            )
+                                    , declaration =
+                                        Helpers.node
+                                            { name = Helpers.node name
+                                            , arguments = List.map (\r -> Helpers.node (CG.varPattern r)) generics
+                                            , expression =
+                                                Helpers.node
+                                                    (Helpers.applyBindings
+                                                        (List.filterMap
+                                                            (\r ->
+                                                                case Dict.get r binds of
+                                                                    Just (FunctionOrValue [] n) ->
+                                                                        Just ( n, FunctionOrValue [] r )
+
+                                                                    _ ->
+                                                                        Nothing
+                                                            )
+                                                            generics
+                                                            |> Dict.fromList
+                                                        )
+                                                        res.expression
+                                                    )
+                                            }
+                                    }
+                                        :: res.auxiliaryDefinitions
+                            }
+                        )
+                        (makeDefExpr ())
 
             Nothing ->
-                CodeGenerationResult.applyBindings defExpr
+                CodeGenerationResult.applyBindings (makeDefExpr ())
 
 
-applyResolvers : (ResolverImpl a -> Maybe CodeGenerationResult) -> String -> AssembledGenerator a -> GenerationContext -> RecursionStack -> a -> ResolvedType -> CodeGenerationResult
-applyResolvers fn name codeGen context stack inputValue t =
+applyResolvers : (ResolverImpl a -> Maybe CodeGenerationResult) -> Bool -> String -> AssembledGenerator a -> GenerationContext -> RecursionStack -> a -> ResolvedType -> CodeGenerationResult
+applyResolvers fn isTopLevel name codeGen context stack inputValue t =
     List.Extra.findMap
         (\resolver ->
             case resolver of
@@ -437,12 +524,122 @@ applyResolvers fn name codeGen context stack inputValue t =
                     fn resolver
         )
         codeGen.resolvers
-        |> Result.fromMaybe ("Could not automatically generate a definition for `" ++ name ++ "`, as we don't know how to implement this type.")
-        |> Result.andThen identity
+        |> reportError isTopLevel codeGen context stack inputValue t [] name
 
 
-applyCombiner : ResolvedType -> Expression -> a -> List ResolvedType -> AssembledGenerator a -> GenerationContext -> RecursionStack -> CodeGenerationResult
-applyCombiner t ctor input children codeGen context stack =
+getRef : ResolvedType -> Maybe Reference
+getRef t =
+    case t of
+        ResolvedType.Opaque ref _ ->
+            Just ref
+
+        ResolvedType.CustomType ref _ _ ->
+            Just ref
+
+        _ ->
+            Nothing
+
+
+typeVariableFromIndex : Int -> String
+typeVariableFromIndex index =
+    let
+        prefix =
+            (modBy 26 index + 97)
+                |> Char.fromCode
+                |> String.fromChar
+
+        suffix =
+            if (index // 26) == 0 then
+                ""
+
+            else
+                String.fromInt (index // 26)
+    in
+    prefix ++ suffix
+
+
+reportError : Bool -> AssembledGenerator a -> GenerationContext -> RecursionStack -> a -> ResolvedType -> List String -> String -> Maybe CodeGenerationResult -> CodeGenerationResult
+reportError isTopLevel codeGen context stack inputValue type_ generics_ label maybeResult =
+    case maybeResult of
+        Just result ->
+            result
+
+        Nothing ->
+            if context.incrementalMode && not isTopLevel then
+                case ( codeGen.makeName, getRef type_ ) of
+                    ( Just makeName, Just ref ) ->
+                        let
+                            -- Fakery needed to generate proper type signatures for opaque types
+                            ( type__, generics ) =
+                                case type_ of
+                                    ResolvedType.Opaque refr vars ->
+                                        ( ResolvedType.Opaque refr (List.indexedMap (\i -> Just >> GenericType (typeVariableFromIndex i)) vars)
+                                        , List.indexedMap (\i _ -> typeVariableFromIndex i) vars
+                                        )
+
+                                    _ ->
+                                        ( type_, generics_ )
+
+                            annotation =
+                                List.foldr
+                                    (\r anno ->
+                                        CG.funAnn (TypePattern.generate codeGen.searchPattern (CG.typeVar r)) anno
+                                    )
+                                    (TypePattern.generate codeGen.searchPattern (CG.fqTyped ref.modulePath ref.name (List.map (\r -> CG.fqTyped [] r []) generics)))
+                                    generics
+
+                            name =
+                                makeName ref.name
+                        in
+                        Result.map
+                            (\res ->
+                                let
+                                    binds =
+                                        Dict.fromList res.bindings
+                                in
+                                { res
+                                    | expression =
+                                        if res.expression == CG.unit then
+                                            CG.apply
+                                                (CG.fun name
+                                                    :: List.filterMap
+                                                        (\r -> Dict.get r binds)
+                                                        generics
+                                                )
+
+                                        else
+                                            res.expression
+                                    , auxiliaryDefinitions =
+                                        [ { documentation = Nothing
+                                          , signature =
+                                                Just
+                                                    (Helpers.node
+                                                        { name = Helpers.node name
+                                                        , typeAnnotation = Helpers.node annotation
+                                                        }
+                                                    )
+                                          , declaration =
+                                                Helpers.node
+                                                    { name = Helpers.node name
+                                                    , arguments = List.map (\r -> Helpers.node (CG.varPattern r)) generics
+                                                    , expression = Helpers.node <| CG.apply [ CG.fqFun [ "Debug" ] "todo", CG.string ("Could not automatically generate a definition for `" ++ label ++ "`, as we don't know how to implement this type.") ]
+                                                    }
+                                          }
+                                        ]
+                                    , bindings = []
+                                }
+                            )
+                            (lazilyPrepareGenerics codeGen context stack inputValue type__)
+
+                    _ ->
+                        CodeGenerationResult.succeed (CG.apply [ CG.fqFun [ "Debug" ] "todo", CG.string ("Could not automatically generate a definition for `" ++ label ++ "`, as we don't know how to implement this type.") ])
+
+            else
+                Err ("Could not automatically generate a definition for `" ++ label ++ "`, as we don't know how to implement this type.")
+
+
+applyCombiner : Bool -> ResolvedType -> Expression -> a -> List ResolvedType -> AssembledGenerator a -> GenerationContext -> RecursionStack -> CodeGenerationResult
+applyCombiner isTopLevel t ctor input children codeGen context stack =
     applyResolvers
         (\resolver ->
             case resolver of
@@ -453,6 +650,7 @@ applyCombiner t ctor input children codeGen context stack =
                 _ ->
                     Nothing
         )
+        isTopLevel
         (Helpers.writeExpression ctor)
         codeGen
         context

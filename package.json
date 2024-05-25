@@ -1,27 +1,27 @@
 {
-    "dependencies": {
-      "elm": "0.19.1-5",
-      "elm-doc-preview": "^5.0.5",
-      "elm-format": "^0.8.7",
-      "elm-review": "^2.10.2",
-      "elm-test": "0.19.1-revision12",
-      "elm-verify-examples": "^5.2.0",
-      "npm-run-all": "^4.1.5"
-    },
-    "scripts": {
-      "test": "npm-run-all --print-name  --sequential test:make test:format test:e2e test:run test:review",
-      "test:make": "elm make --docs=docs.json",
-      "test:format": "elm-format src/ tests/*.elm review preview --validate",
-      "test:examples": "elm-verify-examples",
-      "test:e2e": "./e2e/test.sh",
-      "test:run": "elm-test",
-      "test:review": "elm-review",
-      "fix": "npm-run-all --print-name --sequential fix:format fix:review",
-      "fix:format": "elm-format src/ tests/*.elm review preview --yes",
-      "fix:review": "elm-review --fix",
-      "start": "npm-run-all -p -l start:docs",
-      "start:docs": "elm-doc-preview",
-      "elm-bump": "npm-run-all --print-name --sequential test bump-version 'test:review -- --fix-all-without-prompt'",
-      "bump-version": "(yes | elm bump)"
-    }
+  "dependencies": {
+    "elm": "0.19.1-5",
+    "elm-doc-preview": "^5.0.5",
+    "elm-format": "^0.8.7",
+    "elm-review": "^2.10.2",
+    "elm-test": "0.19.1-revision12",
+    "elm-verify-examples": "^5.2.0",
+    "npm-run-all": "^4.1.5"
+  },
+  "scripts": {
+    "test": "npm-run-all --print-name  --sequential test:make test:format test:e2e test:run test:review",
+    "test:make": "elm make --docs=docs.json",
+    "test:format": "elm-format src/ tests/*.elm review preview --validate",
+    "test:examples": "elm-verify-examples",
+    "test:e2e": "./e2e/test.sh",
+    "test:run": "elm-test",
+    "test:review": "elm-review",
+    "fix": "npm-run-all --print-name --sequential fix:format fix:review",
+    "fix:format": "elm-format src/ tests/*.elm review preview e2e/E2E.elm --yes",
+    "fix:review": "elm-review --fix",
+    "start": "npm-run-all -p -l start:docs",
+    "start:docs": "elm-doc-preview",
+    "elm-bump": "npm-run-all --print-name --sequential test bump-version 'test:review -- --fix-all-without-prompt'",
+    "bump-version": "(yes | elm bump)"
   }
+}

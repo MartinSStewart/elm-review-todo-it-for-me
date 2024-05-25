@@ -4,6 +4,51 @@ module NoDebug.TodoItForMe exposing (rule)
 
 @docs rule
 
+
+### Pro-tip for VSCode users
+
+Open your command palette and select `Preferences: Open Keyboard Shortcuts (JSON)` and add the following object to the array:
+
+```json
+ {
+    "key": "ctrl+alt+d",
+    "command": "runCommands",
+    "when": "editorTextFocus",
+    "args": {
+      "commands": [
+        {
+          "command": "editor.action.insertSnippet",
+          "args": {
+            "snippet": "${TM_CURRENT_LINE/(.*):.+/\n$1 =\n    Debug.todo \"\"/}",
+            "langId": "elm"
+          }
+        },
+        { "command": "workbench.action.files.save" },
+        { "command": "workbench.action.terminal.focus" },
+        {
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {
+            "text": "npx elm-review --fix --template gampleman/elm-review-derive/preview\n"
+          }
+        }
+      ]
+    }
+```
+
+Then whenever you type a type signature, you can hit `ctrl+alt+d` (you can customize the keybinding above).
+
+For instance if you typed:
+
+    decodeUserProfile : Decoder UserProfile
+
+Then running this will modify it to read:
+
+    decodeUserProfile : Decoder UserProfile
+    decodeUserProfile =
+        Debug.todo ""
+
+It will then save the file, open the integrated terminal and run `npx elm-review --fix --template gampleman/elm-review-derive/preview` in it.
+
 -}
 
 import AssocList exposing (Dict)
@@ -72,8 +117,8 @@ elm-review --template gampleman/elm-review-derive/preview --fix
 [`Debug.todo`]: https://package.elm-lang.org/packages/elm/core/latest/Debug#todo
 
 -}
-rule : List CodeGenerator -> Rule
-rule generators =
+rule : Bool -> List CodeGenerator -> Rule
+rule incrementalMode generators =
     let
         codeGens =
             generators
@@ -99,7 +144,7 @@ rule generators =
             }
         |> Rule.withElmJsonProjectVisitor elmJsonVisitor
         |> Rule.withDependenciesProjectVisitor (initializeCodeGensAndScanForDependencyProviders codeGens)
-        |> Rule.withFinalProjectEvaluation finalProjectEvaluation
+        |> Rule.withFinalProjectEvaluation (finalProjectEvaluation incrementalMode)
         |> Rule.providesFixesForProjectRule
         |> Rule.fromProjectRuleSchema
 
@@ -380,8 +425,8 @@ expressionVisitor node context =
             ( [], context )
 
 
-finalProjectEvaluation : ProjectContext -> List (Error { useErrorForModule : () })
-finalProjectEvaluation projectContext =
+finalProjectEvaluation : Bool -> ProjectContext -> List (Error { useErrorForModule : () })
+finalProjectEvaluation incrementalMode projectContext =
     List.map
         (\( moduleKey, range ) ->
             Rule.errorForModule moduleKey
@@ -402,7 +447,7 @@ finalProjectEvaluation projectContext =
                             |> Maybe.withDefault []
                             |> AssocSet.fromList
                 in
-                Internal.CodeGenTodo.todoErrors
+                Internal.CodeGenTodo.todoErrors incrementalMode
                     { projectContext
                         | existingFunctionProviders =
                             projectContext.existingFunctionProviders

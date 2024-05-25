@@ -1,39 +1,15 @@
-module JsonEncoderCodeGenTest exposing (elmJson, suite)
+module IncrementalTests exposing (suite)
 
-import CodeGenerator.Test exposing (FakeDependency, codeGenTest, codeGenTestFailsWith)
+import CodeGenerator.Test exposing (codeGenIncrementalTest)
+import JsonEncoderCodeGenTest exposing (elmJson)
 import StandardModule
 import Test exposing (Test, describe)
 
 
-elmJson : FakeDependency
-elmJson =
-    CodeGenerator.Test.fakeDependency
-        { name = "elm/json"
-        , dependencies = []
-        , modules =
-            [ { name = "Json.Encode"
-              , values =
-                    [ ( "array", "(a -> Json.Encode.Value) -> Array.Array a -> Json.Encode.Value" )
-                    , ( "bool", "Basics.Bool -> Json.Encode.Value" )
-                    , ( "dict", "(k -> String.String) -> (v -> Json.Encode.Value) -> Dict.Dict k v -> Json.Encode.Value" )
-                    , ( "encode", "Basics.Int -> Json.Encode.Value -> String.String" )
-                    , ( "float", "Basics.Float -> Json.Encode.Value" )
-                    , ( "int", "Basics.Int -> Json.Encode.Value" )
-                    , ( "list", "(a -> Json.Encode.Value) -> List.List a -> Json.Encode.Value" )
-                    , ( "null", "Json.Encode.Value" )
-                    , ( "object", "List.List ( String.String, Json.Encode.Value ) -> Json.Encode.Value" )
-                    , ( "set", "(a -> Json.Encode.Value) -> Set.Set a -> Json.Encode.Value" )
-                    , ( "string", "String.String -> Json.Encode.Value" )
-                    ]
-              }
-            ]
-        }
-
-
 suite : Test
 suite =
-    describe "JsonEncoderTodo"
-        [ codeGenTest "Generates a generator for an int"
+    describe "JsonEncoder in incremental mode"
+        [ codeGenIncrementalTest "Generates a generator for an int"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -49,7 +25,7 @@ generator : Int -> Value
 generator =
     Json.Encode.int
 """
-        , codeGenTest "Generates a generator for an int with an explicit arg"
+        , codeGenIncrementalTest "Generates a generator for an int with an explicit arg"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -65,7 +41,7 @@ generator : Int -> Value
 generator a =
     Json.Encode.int a
 """
-        , codeGenTest "Generates an encoder for a basic custom type"
+        , codeGenIncrementalTest "Generates an encoder for a basic custom type"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -90,7 +66,7 @@ encode foo =
         Foo ->
             Json.Encode.string "Foo"
 """
-        , codeGenTest "Generates an encoder for an inline record"
+        , codeGenIncrementalTest "Generates an encoder for an inline record"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -107,7 +83,7 @@ encode : { a : Int, b : String } -> Value
 encode ab =
     Json.Encode.object [ ( "a", Json.Encode.int ab.a ), ( "b", Json.Encode.string ab.b ) ]
 """
-        , codeGenTest "Generates an encoder for a declared record"
+        , codeGenIncrementalTest "Generates an encoder for a declared record"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -130,7 +106,7 @@ encode : Foo -> Value
 encode foo =
     Json.Encode.object [ ( "a", Json.Encode.int foo.a ), ( "b", Json.Encode.string foo.b ) ]
 """
-        , codeGenTest "Generates an encoder for an enum"
+        , codeGenIncrementalTest "Generates an encoder for an enum"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -158,7 +134,7 @@ encode foo =
         B ->
             Json.Encode.string "B"
 """
-        , codeGenTest "Generates an encoder for a custom type"
+        , codeGenIncrementalTest "Generates an encoder for a custom type"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -188,7 +164,7 @@ encode foo =
         B arg0 ->
             Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", Json.Encode.string arg0 ) ]
 """
-        , codeGenTest "Picks up an encoder from another file"
+        , codeGenIncrementalTest "Picks up an encoder from another file"
             [ elmJson ]
             []
             [ """module A exposing (A, encode)
@@ -227,7 +203,7 @@ encode b =
         B arg0 ->
             Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", A.encode arg0 ) ]
 """
-        , codeGenTest "Picks up a generator from another file with different import notation"
+        , codeGenIncrementalTest "Picks up a generator from another file with different import notation"
             [ elmJson ]
             []
             [ """module A exposing (A, encode)
@@ -266,7 +242,7 @@ encode b =
         B arg0 ->
             Encode.object [ ( "tag", Encode.string "B" ), ( "0", A.encode arg0 ) ]
 """
-        , codeGenTest "Picks up an encoder from another file with generics"
+        , codeGenIncrementalTest "Picks up an encoder from another file with generics"
             [ elmJson ]
             []
             [ """module A exposing (A, encode)
@@ -305,7 +281,7 @@ encode b =
         B arg0 ->
             Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", A.encode Json.Encode.int arg0 ) ]
 """
-        , codeGenTest "Picks up an encoder from another file with generics type alias"
+        , codeGenIncrementalTest "Picks up an encoder from another file with generics type alias"
             [ elmJson ]
             []
             [ """module A exposing (A, encode)
@@ -344,7 +320,7 @@ encode b =
         B arg0 ->
             Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", A.encode Json.Encode.int arg0 ) ]
 """
-        , codeGenTestFailsWith "Doesn't pick up an encoder if not exposed"
+        , codeGenIncrementalTest "Doesn't pick up an encoder if not exposed"
             [ elmJson ]
             []
             [ """module A exposing (A)
@@ -366,12 +342,28 @@ import A exposing (A)
 type B =
     B (A Int)
 
-encode : B Int -> Value
+encode : B -> Value
 encode b =
     Debug.todo ""
 """ ]
-            """Could not automatically generate a definition for `A`, as we don't know how to implement this type."""
-        , codeGenTestFailsWith "Doesn't generate an encoder if type not sufficiently exposed"
+            """module B exposing (..)
+import Json.Encode exposing (Value)
+import A exposing (A)
+
+type B =
+    B (A Int)
+
+encode : B -> Value
+encode b =
+    case b of
+        B arg0 ->
+            Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", encodeA Json.Encode.int arg0 ) ]
+
+encodeA : (a -> Value) -> A a -> Value
+encodeA a =
+    Debug.todo "Could not automatically generate a definition for `A`, as we don't know how to implement this type."
+"""
+        , codeGenIncrementalTest "Doesn't generate an encoder if type not sufficiently exposed"
             [ elmJson ]
             []
             [ """module A exposing (A, B(..))
@@ -395,8 +387,28 @@ encode : C -> Value
 encode c =
     Debug.todo ""
 """ ]
-            """Could not automatically generate a definition for `A`, as we don't know how to implement this type."""
-        , codeGenTest "Adds proper imports as needed"
+            """module B exposing (..)
+import Json.Encode exposing (Value)
+import A exposing (A, B)
+
+type C =
+    C A B
+
+encode : C -> Value
+encode c =
+    case c of
+        C arg0 arg1 ->
+            Json.Encode.object [ ( "tag", Json.Encode.string "C" ), ( "0", encodeA arg0 ), ( "1", encodeB arg1 ) ]
+
+encodeA : A -> Value
+encodeA =
+    Debug.todo "Could not automatically generate a definition for `A`, as we don't know how to implement this type."
+
+encodeB : B -> Value
+encodeB =
+    Debug.todo ""
+"""
+        , codeGenIncrementalTest "Adds proper imports as needed"
             [ elmJson ]
             []
             [ """module A exposing (A(..), B(..))
@@ -432,8 +444,6 @@ encode b =
 import Json.Encode exposing (Value)
 import A exposing (A)
 
-import C
-
 type Foo =
     B A
 
@@ -444,24 +454,10 @@ encode b =
             Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", encodeA arg0 ) ]
 
 encodeA : A -> Value
-encodeA arg =
-    case arg of
-        A.A arg0 arg1 ->
-            Json.Encode.object [ ( "tag", Json.Encode.string "A" ), ( "0", encodeB arg0 ), ( "1", encodeC arg1 ) ]
-
-encodeB : A.B -> Value
-encodeB arg =
-    case arg of
-        A.B arg0 ->
-            Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", Json.Encode.int arg0 ) ]
-
-encodeC : C.C -> Value
-encodeC arg =
-    case arg of
-        C.C arg0 ->
-            Json.Encode.object [ ( "tag", Json.Encode.string "C" ), ( "0", Json.Encode.int arg0 ) ]
+encodeA =
+    Debug.todo ""
 """
-        , codeGenTestFailsWith "Fails when necessary sub-values don't have sufficient visibility"
+        , codeGenIncrementalTest "Fails when necessary sub-values don't have sufficient visibility"
             [ elmJson ]
             []
             [ """module A exposing (A(..), B)
@@ -485,8 +481,24 @@ encode b =
     Debug.todo ""
 """
             ]
-            """Could not automatically generate a definition for `A.B`, as we don't know how to implement this type."""
-        , codeGenTest "Generates a generator for a non-exposed value"
+            """module Foo exposing (..)
+import Json.Encode exposing (Value)
+import A exposing (A)
+
+type Foo =
+    B A
+
+encode : Foo -> Value
+encode b =
+    case b of
+        B arg0 ->
+            Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", encodeA arg0 ) ]
+
+encodeA : A -> Value
+encodeA =
+    Debug.todo ""
+"""
+        , codeGenIncrementalTest "Generates a generator for a non-exposed value"
             [ elmJson ]
             []
             [ """module A exposing (main)
@@ -518,7 +530,7 @@ encode arg =
 main =
     Json.Encode.encode 2 (encode (A 2))
 """
-        , codeGenTest "Picks up an encoder from same file with multiple generics"
+        , codeGenIncrementalTest "Picks up an encoder from same file with multiple generics"
             [ elmJson ]
             []
             [ """module A exposing (A, encode)
@@ -564,7 +576,7 @@ encodeResult err ok val =
         Ok arg0 ->
             Json.Encode.object [ ( "tag", Json.Encode.string "Ok" ), ( "0", ok arg0 ) ]
 """
-        , codeGenTest "Picks up the definition of Result from dependency"
+        , codeGenIncrementalTest "Picks up the definition of Result from dependency"
             [ elmJson ]
             []
             [ """module A exposing (A, encode)
@@ -593,15 +605,10 @@ encode encodeVal a =
                 [ ( "tag", Json.Encode.string "A" ), ( "0", encodeResult Json.Encode.string Json.Encode.int arg0 ) ]
 
 encodeResult : (error -> Value) -> (value -> Value) -> Result error value -> Value
-encodeResult error value arg =
-    case arg of
-        Result.Ok arg0 ->
-            Json.Encode.object [ ( "tag", Json.Encode.string "Ok" ), ( "0", value arg0 ) ]
-
-        Result.Err arg0 ->
-            Json.Encode.object [ ( "tag", Json.Encode.string "Err" ), ( "0", error arg0 ) ]
+encodeResult error value =
+    Debug.todo ""
 """
-        , codeGenTest "Generates an encoder for a subtype"
+        , codeGenIncrementalTest "Generates an encoder for a subtype"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -633,12 +640,10 @@ encode arg =
             Json.Encode.object [ ( "tag", Json.Encode.string "A" ), ( "0", encodeB arg0 ) ]
 
 encodeB : B -> Value
-encodeB arg =
-    case arg of
-        B arg0 ->
-            Json.Encode.object [ ( "tag", Json.Encode.string "B" ), ( "0", Json.Encode.int arg0 ) ]
+encodeB =
+    Debug.todo ""
 """
-        , codeGenTest "recursive"
+        , codeGenIncrementalTest "recursive"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -673,7 +678,7 @@ encode childEncoder tree =
         Empty ->
             Encode.string "Empty"
 """
-        , codeGenTest "Generates an encoder for an inline extensible record"
+        , codeGenIncrementalTest "Generates an encoder for an inline extensible record"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -690,7 +695,7 @@ encode : { x | a : Int, b : String } -> Value
 encode ab =
     Json.Encode.object [ ( "a", Json.Encode.int ab.a ), ( "b", Json.Encode.string ab.b ) ]
 """
-        , codeGenTest "Generates an encoder for an declared extensible record"
+        , codeGenIncrementalTest "Generates an encoder for an declared extensible record"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -713,7 +718,7 @@ encode : Foo x -> Value
 encode ab =
     Json.Encode.object [ ( "a", Json.Encode.int ab.a ), ( "b", Json.Encode.string ab.b ) ]
 """
-        , codeGenTest "Generates an encoder for an declared applied extensible record"
+        , codeGenIncrementalTest "Generates an encoder for an declared applied extensible record"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -737,7 +742,7 @@ encode abc =
     Json.Encode.object
         [ ( "a", Json.Encode.int abc.a ), ( "b", Json.Encode.string abc.b ), ( "c", Json.Encode.int abc.c ) ]
 """
-        , codeGenTest "Generates an encoder for an declared declared applied extensible record"
+        , codeGenIncrementalTest "Generates an encoder for an declared declared applied extensible record"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -767,7 +772,7 @@ encode abc =
     Json.Encode.object
         [ ( "a", Json.Encode.int abc.a ), ( "b", Json.Encode.string abc.b ), ( "c", Json.Encode.int abc.c ) ]
 """
-        , codeGenTest "Generates an encoder with phantom types"
+        , codeGenIncrementalTest "Generates an encoder with phantom types"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -798,7 +803,7 @@ encode foo =
         Foo arg0 ->
             Json.Encode.object [ ( "tag", Json.Encode.string "Foo" ), ( "0", Json.Encode.int arg0 ) ]
 """
-        , codeGenTest "Generates an encoder with a list"
+        , codeGenIncrementalTest "Generates an encoder with a list"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -821,7 +826,7 @@ encode : Foo -> Value
 encode =
     Json.Encode.list Json.Encode.int
 """
-        , codeGenTest "Generates an encoder with container types"
+        , codeGenIncrementalTest "Generates an encoder with container types"
             [ elmJson ]
             []
             [ """module A exposing (..)
@@ -888,15 +893,10 @@ encode rec =
         ]
 
 encodeMaybe : (a -> Value) -> Maybe a -> Value
-encodeMaybe a arg =
-    case arg of
-        Just val ->
-            a val
-
-        Nothing ->
-            Json.Encode.null
+encodeMaybe a =
+    Debug.todo ""
 """
-        , codeGenTest "Standard"
+        , codeGenIncrementalTest "Standard"
             [ elmJson ]
             []
             [ StandardModule.standard
@@ -926,26 +926,7 @@ encode arg =
             Json.Encode.object [ ( "tag", Json.Encode.string "Recursive" ), ( "0", encode arg0 ) ]
 
 encodeB : B -> Value
-encodeB rec =
-    Json.Encode.object
-        [ ( "list", Json.Encode.list Json.Encode.int rec.list )
-        , ( "array", Json.Encode.array Json.Encode.string rec.array )
-        , ( "dict", Json.Encode.dict identity Json.Encode.float rec.dict )
-        , ( "tuple"
-          , Json.Encode.list
-                identity
-                [ encodeMaybe Json.Encode.string (Tuple.first rec.tuple), Json.Encode.bool (Tuple.second rec.tuple) ]
-          )
-        , ( "anon", Json.Encode.object [ ( "a", Json.Encode.int rec.anon.a ), ( "b", Json.Encode.int rec.anon.b ) ] )
-        ]
-
-encodeMaybe : (a -> Value) -> Maybe a -> Value
-encodeMaybe a arg =
-    case arg of
-        Just val ->
-            a val
-
-        Nothing ->
-            Json.Encode.null
+encodeB =
+    Debug.todo ""
 """
         ]

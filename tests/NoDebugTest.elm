@@ -10,7 +10,7 @@ testRule : String -> ReviewResult
 testRule string =
     "module A exposing (..)\n\n"
         ++ string
-        |> Review.Test.runWithProjectData Review.Test.Dependencies.projectWithElmCore (NoDebug.TodoItForMe.rule [])
+        |> Review.Test.runWithProjectData Review.Test.Dependencies.projectWithElmCore (NoDebug.TodoItForMe.rule False [])
 
 
 todoMessage : String

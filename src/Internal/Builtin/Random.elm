@@ -8,6 +8,7 @@ import TypePattern exposing (TypePattern(..))
 
 random =
     { int = \min max -> CG.apply [ CG.fqFun [ "Random" ] "int", min, max ]
+    , float = \min max -> CG.apply [ CG.fqFun [ "Random" ] "float", min, max ]
     , minInt = CG.fqVal [ "Random" ] "minInt"
     , maxInt = CG.fqVal [ "Random" ] "maxInt"
     , uniform = \fst rest -> CG.apply [ CG.fqFun [ "Random" ] "uniform", fst, rest ]
@@ -37,6 +38,7 @@ codeGen =
         }
         [ CodeGenerator.int (random.int random.minInt random.maxInt)
         , CodeGenerator.int randomExtra.anyInt |> CodeGenerator.ifUserHasDependency "elm-community/random-extra"
+        , CodeGenerator.float (random.float (CG.float 0) (CG.float 1))
         , CodeGenerator.string (random.uniform (CG.string "TODO: Define string options") (CG.list []))
         , CodeGenerator.list random.list
         , CodeGenerator.pipeline random.constant (\arg -> CG.apply [ CG.fqFun [ "Random" ] "map2", CG.parens (CG.binOp CG.piper), arg ])
